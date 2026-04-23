@@ -24,6 +24,7 @@ interface HistoryItem {
   id: string
   preview: string
   timestamp: Date
+  pinned?: boolean
 }
 
 type Tab = 'overview' | 'analytics' | 'reports'
@@ -60,8 +61,8 @@ export default function Home() {
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null)
   const [focused, setFocused]                   = useState(false)
   const [reports, setReports]                   = useState<ReportEntry[]>([])
-  // Store full message arrays per conversation id
   const [sessions, setSessions]                 = useState<Record<string, Message[]>>({})
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef  = useRef<HTMLTextAreaElement>(null)
@@ -70,19 +71,36 @@ export default function Home() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
 
+  // Cmd+B to toggle sidebar
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+        e.preventDefault()
+        setSidebarCollapsed((p) => !p)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   const resetTextarea = () => {
     if (!inputRef.current) return
     inputRef.current.style.height = 'auto'
   }
 
-  // Save current messages to sessions store
   const saveSession = (id: string | null, msgs: Message[]) => {
     if (!id || msgs.length === 0) return
     setSessions((p) => ({ ...p, [id]: msgs }))
   }
 
   const handleSend = async (text?: string) => {
-    const query = (text || input).trim()
+    const raw = text ?? input
+
+    // Handle quick query trigger
+    const query = raw.startsWith('__quick__')
+      ? raw.replace('__quick__', '')
+      : raw.trim()
+
     if (!query || loading) return
 
     setInput('')
@@ -99,7 +117,6 @@ export default function Home() {
       return updated
     })
 
-    // Create new history entry on first message
     if (messages.length === 0) {
       const id = `${Date.now()}`
       const preview = query.slice(0, 38) + (query.length > 38 ? '…' : '')
@@ -172,7 +189,6 @@ export default function Home() {
       e.preventDefault()
       handleSend()
     }
-    // Shift+Enter → browser inserts newline naturally
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -181,29 +197,28 @@ export default function Home() {
     e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`
   }
 
-  // Switch to a previous conversation
   const handleSelectHistory = (id: string) => {
-    // Save current before switching
+    // Handle quick queries
+    if (id.startsWith('__quick__')) {
+      handleSend(id)
+      return
+    }
     saveSession(currentHistoryId, messages)
-    // Restore selected
     setCurrentHistoryId(id)
     setMessages(sessions[id] || [])
     setFilters([])
-    setSessionId(null) // new backend session for continued queries
+    setSessionId(null)
     setTab('overview')
   }
 
   const handleNew = async () => {
-    // Save current conversation first
     saveSession(currentHistoryId, messages)
-
     if (sessionId) {
       await axios.post(
         `${process.env.NEXT_PUBLIC_API_URL}/reset`,
         { session_id: sessionId }
       ).catch(() => {})
     }
-
     setMessages([])
     setSessionId(null)
     setFilters([])
@@ -212,10 +227,27 @@ export default function Home() {
     setTimeout(() => inputRef.current?.focus(), 50)
   }
 
+  const handleDelete = (id: string) => {
+    setHistory((p) => p.filter((h) => h.id !== id))
+    setSessions((p) => { const n = { ...p }; delete n[id]; return n })
+    if (currentHistoryId === id) {
+      setMessages([])
+      setCurrentHistoryId(null)
+    }
+  }
+
+  const handlePin = (id: string) => {
+    setHistory((p) =>
+      p.map((h) => h.id === id ? { ...h, pinned: !h.pinned } : h)
+    )
+  }
+
   const handleReplay = (query: string) => {
     setTab('overview')
     setTimeout(() => handleSend(query), 100)
   }
+
+  const sidebarWidth = sidebarCollapsed ? 52 : 220
 
   return (
     <div style={{
@@ -234,8 +266,6 @@ export default function Home() {
         WebkitBackdropFilter: 'blur(20px)',
         zIndex: 50,
       }}>
-
-        {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <motion.div
             whileHover={{ scale: 1.06 }}
@@ -313,13 +343,13 @@ export default function Home() {
       {/* ══ BODY ══ */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
-        {/* Sidebar — overview only */}
+        {/* Sidebar */}
         <AnimatePresence initial={false}>
           {tab === 'overview' && (
             <motion.div
               key="sidebar"
               initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 220, opacity: 1 }}
+              animate={{ width: sidebarWidth, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
               style={{ flexShrink: 0, overflow: 'hidden' }}
@@ -329,6 +359,10 @@ export default function Home() {
                 currentId={currentHistoryId}
                 onSelect={handleSelectHistory}
                 onNew={handleNew}
+                onDelete={handleDelete}
+                onPin={handlePin}
+                collapsed={sidebarCollapsed}
+                onToggleCollapse={() => setSidebarCollapsed((p) => !p)}
               />
             </motion.div>
           )}
@@ -353,7 +387,6 @@ export default function Home() {
                   onRemove={(f) => setFilters((p) => p.filter((x) => x !== f))}
                 />
 
-                {/* Messages scroll area */}
                 <div style={{
                   flex: 1, overflowY: 'auto',
                   padding: '28px 36px',
@@ -372,7 +405,6 @@ export default function Home() {
                           minHeight: '52vh',
                         }}
                       >
-                        {/* Spinning rings logo */}
                         <motion.div
                           initial={{ scale: 0.6, opacity: 0 }}
                           animate={{ scale: 1, opacity: 1 }}
@@ -493,7 +525,7 @@ export default function Home() {
                   <div ref={bottomRef} />
                 </div>
 
-                {/* ── Input bar ── */}
+                {/* Input bar */}
                 <div style={{
                   padding: '12px 36px 16px', flexShrink: 0,
                   borderTop: '1px solid var(--border)',
@@ -502,12 +534,8 @@ export default function Home() {
                 }}>
                   <motion.div
                     animate={{
-                      borderColor: focused
-                        ? 'rgba(124,106,247,0.65)'
-                        : 'rgba(255,255,255,0.09)',
-                      boxShadow: focused
-                        ? '0 0 0 3px rgba(124,106,247,0.08)'
-                        : '0 2px 12px rgba(0,0,0,0.35)',
+                      borderColor: focused ? 'rgba(124,106,247,0.65)' : 'rgba(255,255,255,0.09)',
+                      boxShadow: focused ? '0 0 0 3px rgba(124,106,247,0.08)' : '0 2px 12px rgba(0,0,0,0.35)',
                     }}
                     transition={{ duration: 0.18 }}
                     style={{
@@ -517,7 +545,6 @@ export default function Home() {
                       border: '1px solid rgba(255,255,255,0.09)',
                     }}
                   >
-                    {/* Icon */}
                     <div style={{
                       width: 20, height: 20, flexShrink: 0,
                       opacity: focused ? 1 : 0.3, transition: 'opacity 0.2s',
@@ -529,7 +556,6 @@ export default function Home() {
                       </svg>
                     </div>
 
-                    {/* Textarea */}
                     <textarea
                       ref={inputRef}
                       value={input}
@@ -550,7 +576,6 @@ export default function Home() {
                       }}
                     />
 
-                    {/* Send button */}
                     <motion.button
                       whileHover={input.trim() && !loading ? { scale: 1.08 } : {}}
                       whileTap={input.trim() && !loading ? { scale: 0.88 } : {}}
@@ -566,19 +591,16 @@ export default function Home() {
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         opacity: input.trim() && !loading ? 1 : 0.22,
                         transition: 'all 0.2s',
-                        boxShadow: input.trim() && !loading
-                          ? '0 0 24px rgba(124,106,247,0.5)' : 'none',
+                        boxShadow: input.trim() && !loading ? '0 0 24px rgba(124,106,247,0.5)' : 'none',
                       }}
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                        stroke="white" strokeWidth="2.5"
-                        strokeLinecap="round" strokeLinejoin="round">
+                        stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" />
                       </svg>
                     </motion.button>
                   </motion.div>
 
-                  {/* Hints */}
                   <div style={{
                     display: 'flex', justifyContent: 'center', gap: 20,
                     marginTop: 8, fontSize: 11, color: 'var(--text-3)',
@@ -586,7 +608,7 @@ export default function Home() {
                   }}>
                     <span>↵ send</span>
                     <span>⇧↵ new line</span>
-                    <span>⟳ multi-turn context</span>
+                    <span>⌘B sidebar</span>
                     <span>🇮🇳 hindi supported</span>
                   </div>
                 </div>
