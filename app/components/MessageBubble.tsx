@@ -1,21 +1,18 @@
 'use client'
-import { motion } from 'framer-motion'
-import { useState } from 'react'
-import ChartRenderer from './ChartRenderer'
 
-interface Message {
-  role: 'user' | 'assistant'
-  content: string
-  chartType?: string
-  data?: Record<string, unknown>[]
-  columns?: string[]
-  insight?: string
-  sql?: string
+import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import ChartRenderer from './ChartRenderer'
+import type { Message } from '../page'
+
+interface Props {
+  message: Message
+  isMobile?: boolean
 }
 
-export default function MessageBubble({ message }: { message: Message }) {
+export default function MessageBubble({ message, isMobile = false }: Props) {
   const [sqlOpen, setSqlOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied]   = useState(false)
 
   const copySQL = () => {
     if (!message.sql) return
@@ -27,18 +24,20 @@ export default function MessageBubble({ message }: { message: Message }) {
   if (message.role === 'user') {
     return (
       <motion.div
-        initial={{ opacity: 0, y: 12, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.24 }}
         style={{ display: 'flex', justifyContent: 'flex-end' }}
       >
         <div style={{
-          padding: '10px 16px',
-          borderRadius: '14px 14px 4px 14px',
-          background: 'linear-gradient(135deg, #7C6AF7, #6055D8)',
-          color: '#fff', fontSize: 14, maxWidth: '72%',
-          lineHeight: 1.55, fontWeight: 400,
-          boxShadow: '0 4px 24px rgba(124,106,247,0.25)',
+          maxWidth: isMobile ? '88%' : '72%',
+          padding: isMobile ? '9px 14px' : '10px 16px',
+          borderRadius: '14px 4px 14px 14px',
+          background: 'linear-gradient(135deg, #7C6AF7, #5A4FE0)',
+          color: '#fff', fontSize: isMobile ? 14 : 14,
+          lineHeight: 1.6, fontFamily: 'var(--font-body)',
+          boxShadow: '0 2px 14px rgba(124,106,247,0.3)',
+          wordBreak: 'break-word',
         }}>
           {message.content}
         </div>
@@ -48,127 +47,140 @@ export default function MessageBubble({ message }: { message: Message }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}
+      transition={{ duration: 0.28 }}
+      style={{ display: 'flex', gap: isMobile ? 8 : 12, alignItems: 'flex-start' }}
     >
       {/* Avatar */}
       <div style={{
-        width: 30, height: 30, borderRadius: 10, flexShrink: 0,
-        background: 'var(--bg-2)', border: '1px solid var(--border-md)',
+        width: isMobile ? 26 : 30, height: isMobile ? 26 : 30,
+        borderRadius: 9, flexShrink: 0,
+        background: 'linear-gradient(135deg, #7C6AF7, #5A4FE0)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
+        marginTop: 2,
       }}>
-        <motion.div
-          animate={{ scale: [1, 1.15, 1] }}
-          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-          style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)' }}
-        />
+        <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#fff' }} />
       </div>
 
+      {/* Content */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Main text */}
+        {/* Answer text */}
         <div style={{
-          padding: '12px 16px',
+          padding: isMobile ? '9px 13px' : '10px 16px',
           borderRadius: '4px 14px 14px 14px',
-          background: 'var(--bg-2)',
-          border: '1px solid var(--border)',
-          color: 'var(--text-2)',
-          fontSize: 14, lineHeight: 1.65,
+          background: 'var(--bg-2)', border: '1px solid var(--border)',
+          fontSize: 14, color: 'var(--text-1)',
+          lineHeight: 1.65, fontFamily: 'var(--font-body)',
+          wordBreak: 'break-word',
         }}>
           {message.content}
         </div>
 
-        {/* Insight pill */}
+        {/* Chart title */}
+        {message.title && (
+          <div style={{
+            marginTop: 10, fontSize: 12, fontWeight: 600,
+            color: 'var(--text-2)', fontFamily: 'var(--font-body)',
+          }}>
+            {message.title}
+          </div>
+        )}
+
+        {/* Chart */}
+        {message.chartType && message.data && message.columns && (
+          <ChartRenderer
+            chartType={message.chartType}
+            data={message.data}
+            columns={message.columns}
+            isMobile={isMobile}
+          />
+        )}
+
+        {/* Insight */}
         {message.insight && (
           <motion.div
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.25 }}
+            transition={{ delay: 0.3 }}
             style={{
-              marginTop: 8, padding: '8px 12px',
-              borderRadius: 10, fontSize: 12,
-              background: 'rgba(124,106,247,0.08)',
-              border: '1px solid rgba(124,106,247,0.18)',
-              color: '#9F97F9',
-              display: 'flex', alignItems: 'flex-start', gap: 8,
+              marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '6px 12px', borderRadius: 99,
+              background: 'rgba(29,179,123,0.1)',
+              border: '1px solid rgba(29,179,123,0.2)',
+              fontSize: 12, color: '#1DB37B',
+              fontFamily: 'var(--font-body)',
             }}
           >
-            <span style={{ fontSize: 14, marginTop: -1 }}>↗</span>
-            <span>{message.insight}</span>
+            <span style={{ fontSize: 12 }}>💡</span>
+            {message.insight}
           </motion.div>
-        )}
-
-        {/* Chart */}
-        {message.chartType && message.chartType !== 'none' && message.data && (
-          <ChartRenderer
-            chartType={message.chartType}
-            data={message.data}
-            columns={message.columns || []}
-          />
         )}
 
         {/* SQL toggle */}
         {message.sql && (
-          <div style={{ marginTop: 10 }}>
+          <div style={{ marginTop: 8 }}>
             <button
-              onClick={() => setSqlOpen(!sqlOpen)}
+              onClick={() => setSqlOpen((p) => !p)}
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
-                fontSize: 12, color: 'var(--text-3)', display: 'flex',
-                alignItems: 'center', gap: 5, padding: 0,
+                display: 'flex', alignItems: 'center', gap: 5,
+                fontSize: 11, color: 'var(--text-3)',
+                fontFamily: 'var(--font-body)', padding: '4px 0',
               }}
             >
               <motion.span
                 animate={{ rotate: sqlOpen ? 90 : 0 }}
-                transition={{ duration: 0.2 }}
-                style={{ display: 'inline-block', fontSize: 10 }}
+                transition={{ duration: 0.15 }}
+                style={{ display: 'inline-block', fontSize: 9 }}
               >▶</motion.span>
-              {sqlOpen ? 'hide' : 'view'} SQL
+              View SQL
             </button>
 
-            <AnimateHeight open={sqlOpen}>
-              <div style={{ position: 'relative', marginTop: 8 }}>
-                <pre style={{
-                  padding: '12px 14px', borderRadius: 10, fontSize: 12,
-                  background: 'var(--bg-1)', border: '1px solid var(--border)',
-                  color: '#8B92A5', overflowX: 'auto', lineHeight: 1.6,
-                  fontFamily: 'monospace',
-                }}>
-                  {message.sql}
-                </pre>
-                <button
-                  onClick={copySQL}
-                  style={{
-                    position: 'absolute', top: 8, right: 8,
-                    padding: '3px 10px', borderRadius: 6, fontSize: 11,
-                    background: copied ? 'rgba(29,179,123,0.15)' : 'var(--bg-3)',
-                    border: `1px solid ${copied ? 'rgba(29,179,123,0.3)' : 'var(--border)'}`,
-                    color: copied ? 'var(--green)' : 'var(--text-3)',
-                    cursor: 'pointer', transition: 'all 0.2s',
-                  }}
+            <AnimatePresence>
+              {sqlOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  style={{ overflow: 'hidden' }}
                 >
-                  {copied ? '✓ copied' : 'copy'}
-                </button>
-              </div>
-            </AnimateHeight>
+                  <div style={{
+                    marginTop: 6, position: 'relative',
+                    borderRadius: 10, overflow: 'hidden',
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-1)',
+                  }}>
+                    <button
+                      onClick={copySQL}
+                      style={{
+                        position: 'absolute', top: 8, right: 8,
+                        padding: '3px 9px', borderRadius: 6, fontSize: 11,
+                        background: copied ? 'rgba(29,179,123,0.15)' : 'var(--bg-3)',
+                        border: `1px solid ${copied ? 'rgba(29,179,123,0.3)' : 'var(--border)'}`,
+                        color: copied ? '#1DB37B' : 'var(--text-3)',
+                        cursor: 'pointer', fontFamily: 'var(--font-body)',
+                      }}
+                    >
+                      {copied ? '✓' : 'copy'}
+                    </button>
+                    <pre style={{
+                      margin: 0, padding: '12px 14px',
+                      fontSize: isMobile ? 11 : 12, color: '#8B92A5',
+                      lineHeight: 1.6, overflowX: 'auto',
+                      fontFamily: 'monospace',
+                      whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                    }}>
+                      {message.sql}
+                    </pre>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
       </div>
-    </motion.div>
-  )
-}
-
-// Simple animate height helper
-function AnimateHeight({ open, children }: { open: boolean; children: React.ReactNode }) {
-  return (
-    <motion.div
-      initial={false}
-      animate={{ height: open ? 'auto' : 0, opacity: open ? 1 : 0 }}
-      transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-      style={{ overflow: 'hidden' }}
-    >
-      {children}
     </motion.div>
   )
 }

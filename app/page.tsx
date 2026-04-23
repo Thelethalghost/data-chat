@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import axios from 'axios'
 import MessageBubble from './components/MessageBubble'
@@ -10,7 +10,7 @@ import HistorySidebar from './components/HistorySidebar'
 import AnalyticsPage from './components/AnalyticsPage'
 import ReportsPage, { type ReportEntry } from './components/ReportsPage'
 
-interface Message {
+export interface Message {
   role: 'user' | 'assistant'
   content: string
   chartType?: string
@@ -18,6 +18,7 @@ interface Message {
   columns?: string[]
   insight?: string
   sql?: string
+  title?: string
 }
 
 interface HistoryItem {
@@ -29,28 +30,69 @@ interface HistoryItem {
 
 type Tab = 'overview' | 'analytics' | 'reports'
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'overview',  label: 'Overview'  },
-  { id: 'analytics', label: 'Analytics' },
-  { id: 'reports',   label: 'Reports'   },
+const TABS: { id: Tab; label: string; icon: string }[] = [
+  { id: 'overview',  label: 'Overview',  icon: '💬' },
+  { id: 'analytics', label: 'Analytics', icon: '📊' },
+  { id: 'reports',   label: 'Reports',   icon: '📋' },
 ]
 
 const SUGGESTIONS = [
-  { label: '🏆 Top agents by recovery', query: 'Top 10 agents by recovery rate this month' },
-  { label: '📊 DPD bucket breakdown',   query: 'How many accounts are in each DPD bucket?' },
-  { label: '🤝 PTP by product type',    query: 'PTP conversion rate by product type' },
-  { label: '📈 Roll rate — 3 months',   query: 'Roll rates over last 3 months' },
-  { label: '📞 Recovery by channel',    query: 'Recovery amount by contact channel' },
-  { label: '🇮🇳 इस महीने recovery',     query: 'इस महीने सबसे ज़्यादा recovery किसने की?' },
+  { label: '🏆 Top agents',     query: 'Top 10 agents by recovery rate this month' },
+  { label: '📊 DPD buckets',    query: 'How many accounts are in each DPD bucket?' },
+  { label: '🤝 PTP by product', query: 'PTP conversion rate by product type' },
+  { label: '📈 Roll rates',     query: 'Roll rates over last 3 months' },
+  { label: '📞 By channel',     query: 'Recovery amount by contact channel' },
+  { label: '🇮🇳 Hindi',         query: 'इस महीने सबसे ज़्यादा recovery किसने की?' },
 ]
 
 const FILTER_KEYWORDS = [
   'personal loan', 'business loan', 'credit card', 'auto loan',
-  '30-60 dpd', '60-90 dpd', '90+ dpd', '1-30 dpd',
-  'this month', 'last month', 'hdfc', 'last 3 months',
+  '30-60 dpd', '60-90 dpd', '90+ dpd', 'this month', 'last month',
 ]
 
+function mapResponse(d: Record<string, unknown>): Omit<Message, 'role'> {
+  const chart    = (d.chart as Record<string, unknown>) || {}
+  const chartData = (chart.data as Record<string, unknown>[]) || []
+  const chartType = (chart.chart_type as string) || 'none'
+  const xKey      = chart.x_key as string | null
+  const yKeys     = (chart.y_keys as string[]) || []
+
+  let columns: string[] = []
+  if (xKey && yKeys.length > 0) columns = [xKey, ...yKeys]
+  else if (chartData.length > 0) columns = Object.keys(chartData[0])
+
+  return {
+    content:   (d.answer as string) || 'Here are the results.',
+    chartType: chartType === 'none' ? undefined : chartType,
+    data:      chartData.length > 0 ? chartData : undefined,
+    columns:   columns.length > 0 ? columns : undefined,
+    sql:       (d.sql as string) || undefined,
+    title:     (chart.title as string) || undefined,
+  }
+}
+
+// ── useBreakpoint hook ────────────────────────────────────────────
+function useBreakpoint() {
+  const [width, setWidth] = useState(
+    typeof window !== 'undefined' ? window.innerWidth : 1200
+  )
+  useEffect(() => {
+    const fn = () => setWidth(window.innerWidth)
+    window.addEventListener('resize', fn)
+    return () => window.removeEventListener('resize', fn)
+  }, [])
+  return {
+    isMobile:  width < 640,
+    isTablet:  width >= 640 && width < 1024,
+    isDesktop: width >= 1024,
+    width,
+  }
+}
+
 export default function Home() {
+  const { isMobile, isTablet } = useBreakpoint()
+  const isSmall = isMobile || isTablet
+
   const [tab, setTab]                           = useState<Tab>('overview')
   const [messages, setMessages]                 = useState<Message[]>([])
   const [input, setInput]                       = useState('')
@@ -62,6 +104,7 @@ export default function Home() {
   const [focused, setFocused]                   = useState(false)
   const [reports, setReports]                   = useState<ReportEntry[]>([])
   const [sessions, setSessions]                 = useState<Record<string, Message[]>>({})
+  const [sidebarOpen, setSidebarOpen]           = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -71,21 +114,24 @@ export default function Home() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
 
-  // Cmd+B to toggle sidebar
+  // Cmd+B toggle sidebar
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
+    const h = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
         e.preventDefault()
-        setSidebarCollapsed((p) => !p)
+        if (isSmall) setSidebarOpen((p) => !p)
+        else setSidebarCollapsed((p) => !p)
       }
     }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [])
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [isSmall])
+
+  // Close mobile sidebar on tab change
+  useEffect(() => { if (isSmall) setSidebarOpen(false) }, [tab, isSmall])
 
   const resetTextarea = () => {
-    if (!inputRef.current) return
-    inputRef.current.style.height = 'auto'
+    if (inputRef.current) inputRef.current.style.height = 'auto'
   }
 
   const saveSession = (id: string | null, msgs: Message[]) => {
@@ -93,19 +139,15 @@ export default function Home() {
     setSessions((p) => ({ ...p, [id]: msgs }))
   }
 
-  const handleSend = async (text?: string) => {
-    const raw = text ?? input
-
-    // Handle quick query trigger
-    const query = raw.startsWith('__quick__')
-      ? raw.replace('__quick__', '')
-      : raw.trim()
-
+  const handleSend = useCallback(async (text?: string) => {
+    const raw   = text ?? input
+    const query = raw.startsWith('__quick__') ? raw.replace('__quick__', '') : raw.trim()
     if (!query || loading) return
 
     setInput('')
     resetTextarea()
     setTab('overview')
+    if (isSmall) setSidebarOpen(false)
     setLoading(true)
 
     const userMsg: Message = { role: 'user', content: query }
@@ -120,8 +162,7 @@ export default function Home() {
     if (messages.length === 0) {
       const id = `${Date.now()}`
       const preview = query.slice(0, 38) + (query.length > 38 ? '…' : '')
-      const timestamp = new Date()
-      setHistory((p) => [{ id, preview, timestamp }, ...p])
+      setHistory((p) => [{ id, preview, timestamp: new Date() }, ...p])
       setCurrentHistoryId(id)
       setSessions((p) => ({ ...p, [id]: [userMsg] }))
       activeId = id
@@ -135,35 +176,26 @@ export default function Home() {
         { message: query, session_id: sessionId },
         { timeout: 30000 }
       )
-
       const duration = Date.now() - t0
-      if (!sessionId) setSessionId(d.session_id)
+      if (d.session_id) setSessionId(d.session_id)
 
       const found = FILTER_KEYWORDS.filter((k) => query.toLowerCase().includes(k))
       if (found.length) setFilters((p) => [...new Set([...p, ...found])])
 
-      const aiMsg: Message = {
-        role: 'assistant',
-        content: d.explanation || 'Here are the results.',
-        chartType: d.chart_type,
-        data: d.data,
-        columns: d.columns,
-        insight: d.insight,
-        sql: d.sql,
-      }
-
+      const aiMsg: Message = { role: 'assistant', ...mapResponse(d) }
       setMessages((prev) => {
         const updated = [...prev, aiMsg]
         if (activeId) saveSession(activeId, updated)
         return updated
       })
 
+      const chart = (d.chart as Record<string, unknown>) || {}
       setReports((p) => [{
         id: `${Date.now()}`,
         query,
-        sql: d.sql || null,
-        chartType: d.chart_type || 'none',
-        rowCount: d.row_count || d.data?.length || 0,
+        sql: (d.sql as string) || null,
+        chartType: (chart.chart_type as string) || 'none',
+        rowCount: (d.rows_returned as number) || 0,
         timestamp: new Date(),
         durationMs: duration,
       }, ...p])
@@ -182,13 +214,10 @@ export default function Home() {
       setLoading(false)
       setTimeout(() => inputRef.current?.focus(), 50)
     }
-  }
+  }, [input, loading, messages.length, sessionId, currentHistoryId, isSmall])
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -198,54 +227,33 @@ export default function Home() {
   }
 
   const handleSelectHistory = (id: string) => {
-    // Handle quick queries
-    if (id.startsWith('__quick__')) {
-      handleSend(id)
-      return
-    }
+    if (id.startsWith('__quick__')) { handleSend(id); return }
     saveSession(currentHistoryId, messages)
     setCurrentHistoryId(id)
     setMessages(sessions[id] || [])
     setFilters([])
     setSessionId(null)
     setTab('overview')
+    if (isSmall) setSidebarOpen(false)
   }
 
   const handleNew = async () => {
     saveSession(currentHistoryId, messages)
-    if (sessionId) {
-      await axios.post(
-        `${process.env.NEXT_PUBLIC_API_URL}/reset`,
-        { session_id: sessionId }
-      ).catch(() => {})
-    }
-    setMessages([])
-    setSessionId(null)
-    setFilters([])
-    setCurrentHistoryId(null)
+    if (sessionId) await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/reset`, { session_id: sessionId }).catch(() => {})
+    setMessages([]); setSessionId(null); setFilters([]); setCurrentHistoryId(null)
     resetTextarea()
+    if (isSmall) setSidebarOpen(false)
     setTimeout(() => inputRef.current?.focus(), 50)
   }
 
   const handleDelete = (id: string) => {
     setHistory((p) => p.filter((h) => h.id !== id))
     setSessions((p) => { const n = { ...p }; delete n[id]; return n })
-    if (currentHistoryId === id) {
-      setMessages([])
-      setCurrentHistoryId(null)
-    }
+    if (currentHistoryId === id) { setMessages([]); setCurrentHistoryId(null) }
   }
 
-  const handlePin = (id: string) => {
-    setHistory((p) =>
-      p.map((h) => h.id === id ? { ...h, pinned: !h.pinned } : h)
-    )
-  }
-
-  const handleReplay = (query: string) => {
-    setTab('overview')
-    setTimeout(() => handleSend(query), 100)
-  }
+  const handlePin    = (id: string) => setHistory((p) => p.map((h) => h.id === id ? { ...h, pinned: !h.pinned } : h))
+  const handleReplay = (query: string) => { setTab('overview'); setTimeout(() => handleSend(query), 100) }
 
   const sidebarWidth = sidebarCollapsed ? 52 : 220
 
@@ -259,114 +267,157 @@ export default function Home() {
       {/* ══ HEADER ══ */}
       <header style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 28px', height: 56, flexShrink: 0,
+        padding: `0 ${isMobile ? '14px' : '24px'}`,
+        height: isMobile ? 48 : 56, flexShrink: 0,
         background: 'rgba(8,11,18,0.96)',
         borderBottom: '1px solid var(--border)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
         zIndex: 50,
+        gap: isMobile ? 8 : 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+
+        {/* Left — hamburger (mobile) + logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 10 }}>
+          {/* Hamburger — mobile only */}
+          {isMobile && tab === 'overview' && (
+            <button
+              onClick={() => setSidebarOpen((p) => !p)}
+              style={{
+                width: 34, height: 34, borderRadius: 9, border: 'none',
+                background: 'transparent', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexDirection: 'column', gap: 4, flexShrink: 0,
+              }}
+            >
+              {[0,1,2].map((i) => (
+                <div key={i} style={{ width: 16, height: 1.5, background: 'var(--text-3)', borderRadius: 2 }} />
+              ))}
+            </button>
+          )}
+
           <motion.div
-            whileHover={{ scale: 1.06 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+            whileHover={{ scale: 1.05 }}
             style={{
-              width: 34, height: 34, borderRadius: 11, cursor: 'pointer',
-              background: 'linear-gradient(135deg, #7C6AF7 0%, #5A4FE0 100%)',
+              width: isMobile ? 28 : 34, height: isMobile ? 28 : 34,
+              borderRadius: isMobile ? 9 : 11, cursor: 'pointer', flexShrink: 0,
+              background: 'linear-gradient(135deg, #7C6AF7, #5A4FE0)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 0 24px rgba(124,106,247,0.45)',
+              boxShadow: '0 0 20px rgba(124,106,247,0.4)',
             }}
           >
-            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#fff' }} />
+            <div style={{ width: isMobile ? 8 : 10, height: isMobile ? 8 : 10, borderRadius: '50%', background: '#fff' }} />
           </motion.div>
-          <div>
-            <div style={{
-              fontFamily: 'var(--font-display)', fontSize: 22,
-              letterSpacing: '0.14em', color: 'var(--text-1)', lineHeight: 1,
-            }}>ASKCN</div>
-            <div style={{
-              fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.12em',
-              marginTop: 2, fontFamily: 'var(--font-body)', fontWeight: 500,
-            }}>PORTFOLIO INTELLIGENCE</div>
-          </div>
+
+          {!isMobile && (
+            <div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, letterSpacing: '0.14em', color: 'var(--text-1)', lineHeight: 1 }}>ASKCN</div>
+              <div style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.12em', marginTop: 2, fontFamily: 'var(--font-body)' }}>PORTFOLIO INTELLIGENCE</div>
+            </div>
+          )}
+          {isMobile && (
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 18, letterSpacing: '0.12em', color: 'var(--text-1)' }}>ASKCN</span>
+          )}
         </div>
 
-        {/* Tab switcher */}
+        {/* Center — tab switcher */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 2,
           background: 'var(--bg-2)', border: '1px solid var(--border)',
-          borderRadius: 12, padding: 3,
+          borderRadius: isMobile ? 10 : 12, padding: isMobile ? 2 : 3,
         }}>
           {TABS.map((t) => (
             <motion.button
               key={t.id}
               onClick={() => setTab(t.id)}
-              whileTap={{ scale: 0.95 }}
+              whileTap={{ scale: 0.93 }}
               style={{
                 position: 'relative',
-                padding: '6px 20px', borderRadius: 9,
-                fontSize: 12, fontFamily: 'var(--font-body)', fontWeight: 500,
-                border: 'none', cursor: 'pointer', transition: 'color 0.2s',
-                background: tab === t.id
-                  ? 'linear-gradient(135deg, #7C6AF7, #5A4FE0)'
-                  : 'transparent',
+                padding: isMobile ? '5px 10px' : '6px 18px',
+                borderRadius: isMobile ? 8 : 9,
+                fontSize: isMobile ? 11 : 12,
+                fontFamily: 'var(--font-body)', fontWeight: 500,
+                border: 'none', cursor: 'pointer',
+                background: tab === t.id ? 'linear-gradient(135deg, #7C6AF7, #5A4FE0)' : 'transparent',
                 color: tab === t.id ? '#fff' : 'var(--text-3)',
+                whiteSpace: 'nowrap',
               }}
             >
-              {t.label}
+              {isMobile ? t.icon : t.label}
               {t.id === 'reports' && reports.length > 0 && tab !== 'reports' && (
-                <span style={{
-                  position: 'absolute', top: 4, right: 6,
-                  width: 5, height: 5, borderRadius: '50%',
-                  background: '#9F97F9',
-                }} />
+                <span style={{ position: 'absolute', top: 3, right: 4, width: 5, height: 5, borderRadius: '50%', background: '#9F97F9' }} />
               )}
             </motion.button>
           ))}
         </div>
 
-        {/* Status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {/* Right — status */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <motion.div
             animate={{ opacity: [0.4, 1, 0.4] }}
             transition={{ duration: 2.5, repeat: Infinity }}
-            style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)' }}
+            style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }}
           />
-          <span style={{
-            fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-body)',
-            padding: '4px 12px', borderRadius: 99,
-            background: 'var(--bg-2)', border: '1px solid var(--border)',
-          }}>Oracle 19c · Mock</span>
+          {!isMobile && (
+            <span style={{
+              fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-body)',
+              padding: '4px 10px', borderRadius: 99,
+              background: 'var(--bg-2)', border: '1px solid var(--border)',
+              whiteSpace: 'nowrap',
+            }}>Oracle 19c · Live</span>
+          )}
         </div>
       </header>
 
       {/* ══ BODY ══ */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+
+        {/* Mobile overlay */}
+        {isMobile && sidebarOpen && (
+          <div
+            onClick={() => setSidebarOpen(false)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 40,
+              background: 'rgba(0,0,0,0.6)',
+              backdropFilter: 'blur(2px)',
+            }}
+          />
+        )}
 
         {/* Sidebar */}
-        <AnimatePresence initial={false}>
-          {tab === 'overview' && (
-            <motion.div
-              key="sidebar"
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: sidebarWidth, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-              style={{ flexShrink: 0, overflow: 'hidden' }}
-            >
-              <HistorySidebar
-                history={history}
-                currentId={currentHistoryId}
-                onSelect={handleSelectHistory}
-                onNew={handleNew}
-                onDelete={handleDelete}
-                onPin={handlePin}
-                collapsed={sidebarCollapsed}
-                onToggleCollapse={() => setSidebarCollapsed((p) => !p)}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {tab === 'overview' && (
+          <motion.div
+            key="sidebar"
+            initial={false}
+            animate={isMobile
+              ? { x: sidebarOpen ? 0 : -280 }
+              : { width: sidebarCollapsed ? 52 : 220, opacity: 1 }
+            }
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            style={isMobile ? {
+              position: 'fixed', top: 0, left: 0, bottom: 0,
+              width: 260, zIndex: 45,
+              boxShadow: sidebarOpen ? '4px 0 32px rgba(0,0,0,0.5)' : 'none',
+            } : {
+              flexShrink: 0, overflow: 'hidden',
+              width: sidebarCollapsed ? 52 : 220,
+            }}
+          >
+            <HistorySidebar
+              history={history}
+              currentId={currentHistoryId}
+              onSelect={handleSelectHistory}
+              onNew={handleNew}
+              onDelete={handleDelete}
+              onPin={handlePin}
+              collapsed={!isMobile && sidebarCollapsed}
+              onToggleCollapse={() => {
+                if (isMobile) setSidebarOpen(false)
+                else setSidebarCollapsed((p) => !p)
+              }}
+            />
+          </motion.div>
+        )}
 
         {/* Tab content */}
         <div style={{ flex: 1, display: 'flex', minWidth: 0, overflow: 'hidden' }}>
@@ -376,10 +427,10 @@ export default function Home() {
             {tab === 'overview' && (
               <motion.div
                 key="overview"
-                initial={{ opacity: 0, x: -14 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 14 }}
-                transition={{ duration: 0.2 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18 }}
                 style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
               >
                 <FilterChips
@@ -387,9 +438,10 @@ export default function Home() {
                   onRemove={(f) => setFilters((p) => p.filter((x) => x !== f))}
                 />
 
+                {/* Messages */}
                 <div style={{
                   flex: 1, overflowY: 'auto',
-                  padding: '28px 36px',
+                  padding: `20px ${isMobile ? '14px' : '28px'}`,
                   display: 'flex', flexDirection: 'column',
                 }}>
                   <AnimatePresence mode="wait">
@@ -398,18 +450,19 @@ export default function Home() {
                         key="empty"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
-                        exit={{ opacity: 0, y: -8 }}
+                        exit={{ opacity: 0 }}
                         style={{
                           flex: 1, display: 'flex', flexDirection: 'column',
                           alignItems: 'center', justifyContent: 'center',
-                          minHeight: '52vh',
+                          minHeight: isMobile ? '45vh' : '52vh',
                         }}
                       >
+                        {/* Logo mark */}
                         <motion.div
                           initial={{ scale: 0.6, opacity: 0 }}
                           animate={{ scale: 1, opacity: 1 }}
-                          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-                          style={{ marginBottom: 32, position: 'relative', width: 76, height: 76 }}
+                          transition={{ duration: 0.7 }}
+                          style={{ marginBottom: 24, position: 'relative', width: isMobile ? 60 : 76, height: isMobile ? 60 : 76 }}
                         >
                           <motion.div
                             animate={{ rotate: 360 }}
@@ -420,82 +473,73 @@ export default function Home() {
                               borderTopColor: '#7C6AF7',
                             }}
                           />
-                          <motion.div
-                            animate={{ rotate: -360 }}
-                            transition={{ duration: 7, repeat: Infinity, ease: 'linear' }}
-                            style={{
-                              position: 'absolute', inset: 10, borderRadius: '50%',
-                              border: '1px solid rgba(124,106,247,0.1)',
-                              borderBottomColor: '#9F97F9',
-                            }}
-                          />
                           <div style={{
-                            position: 'absolute', inset: 14, borderRadius: 16,
+                            position: 'absolute', inset: isMobile ? 10 : 14, borderRadius: 14,
                             background: 'linear-gradient(135deg, #7C6AF7, #5A4FE0)',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            boxShadow: '0 0 30px rgba(124,106,247,0.4)',
+                            boxShadow: '0 0 24px rgba(124,106,247,0.4)',
                           }}>
                             <motion.div
-                              animate={{ scale: [1, 1.25, 1] }}
-                              transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
-                              style={{ width: 14, height: 14, borderRadius: '50%', background: 'rgba(255,255,255,0.95)' }}
+                              animate={{ scale: [1, 1.2, 1] }}
+                              transition={{ duration: 2.5, repeat: Infinity }}
+                              style={{ width: isMobile ? 10 : 14, height: isMobile ? 10 : 14, borderRadius: '50%', background: '#fff' }}
                             />
                           </div>
                         </motion.div>
 
                         <motion.h1
-                          initial={{ opacity: 0, y: 14 }}
+                          initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.22, duration: 0.5 }}
+                          transition={{ delay: 0.2 }}
                           style={{
                             fontFamily: 'var(--font-display)',
-                            fontSize: 52, letterSpacing: '0.07em',
+                            fontSize: isMobile ? 32 : 48, letterSpacing: '0.07em',
                             color: 'var(--text-1)', textAlign: 'center',
-                            lineHeight: 1, marginBottom: 14,
+                            lineHeight: 1, marginBottom: 12,
                           }}
                         >
                           ASK YOUR PORTFOLIO
                         </motion.h1>
 
                         <motion.p
-                          initial={{ opacity: 0, y: 8 }}
+                          initial={{ opacity: 0, y: 6 }}
                           animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.3 }}
+                          transition={{ delay: 0.28 }}
                           style={{
-                            fontSize: 13, color: 'var(--text-3)', textAlign: 'center',
-                            maxWidth: 400, lineHeight: 1.8, marginBottom: 36,
+                            fontSize: isMobile ? 12 : 13, color: 'var(--text-3)',
+                            textAlign: 'center', maxWidth: 340,
+                            lineHeight: 1.8, marginBottom: 28,
                             fontFamily: 'var(--font-body)',
                           }}
                         >
-                          Natural language analytics for your collections portfolio<br />
-                          Ask in English or Hindi · Instant charts · Live Oracle data
+                          {isMobile
+                            ? 'Ask in English or Hindi · Instant charts'
+                            : 'Natural language analytics for your collections portfolio\nAsk in English or Hindi · Instant charts · Live Oracle data'
+                          }
                         </motion.p>
 
-                        <motion.div
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.38 }}
-                          style={{
-                            display: 'flex', flexWrap: 'wrap',
-                            gap: 8, justifyContent: 'center', maxWidth: 560,
-                          }}
-                        >
+                        {/* Suggestion chips */}
+                        <div style={{
+                          display: 'flex', flexWrap: 'wrap',
+                          gap: 7, justifyContent: 'center',
+                          maxWidth: isMobile ? '100%' : 520,
+                        }}>
                           {SUGGESTIONS.map((s, i) => (
                             <motion.button
                               key={s.query}
-                              initial={{ opacity: 0, scale: 0.85 }}
+                              initial={{ opacity: 0, scale: 0.88 }}
                               animate={{ opacity: 1, scale: 1 }}
-                              transition={{ delay: 0.42 + i * 0.07 }}
-                              whileHover={{ scale: 1.05, y: -2 }}
+                              transition={{ delay: 0.32 + i * 0.06 }}
                               whileTap={{ scale: 0.93 }}
                               onClick={() => handleSend(s.query)}
                               style={{
-                                padding: '9px 18px', borderRadius: 99,
+                                padding: isMobile ? '8px 14px' : '9px 16px',
+                                borderRadius: 99,
                                 background: 'var(--bg-2)',
                                 border: '1px solid var(--border-md)',
                                 color: 'var(--text-2)', cursor: 'pointer',
-                                fontSize: 12, fontFamily: 'var(--font-body)',
-                                fontWeight: 500, transition: 'all 0.18s',
+                                fontSize: isMobile ? 11 : 12,
+                                fontFamily: 'var(--font-body)', fontWeight: 500,
                               }}
                               onMouseEnter={(e) => {
                                 e.currentTarget.style.borderColor = 'rgba(124,106,247,0.45)'
@@ -511,14 +555,14 @@ export default function Home() {
                               {s.label}
                             </motion.button>
                           ))}
-                        </motion.div>
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
                     {messages.map((msg, i) => (
-                      <MessageBubble key={i} message={msg} />
+                      <MessageBubble key={i} message={msg} isMobile={isMobile} />
                     ))}
                     {loading && <TypingIndicator />}
                   </div>
@@ -527,20 +571,22 @@ export default function Home() {
 
                 {/* Input bar */}
                 <div style={{
-                  padding: '12px 36px 16px', flexShrink: 0,
+                  padding: `10px ${isMobile ? '12px' : '28px'} ${isMobile ? '12px' : '14px'}`,
+                  flexShrink: 0,
                   borderTop: '1px solid var(--border)',
-                  background: 'rgba(8,11,18,0.92)',
+                  background: 'rgba(8,11,18,0.94)',
                   backdropFilter: 'blur(20px)',
                 }}>
                   <motion.div
                     animate={{
                       borderColor: focused ? 'rgba(124,106,247,0.65)' : 'rgba(255,255,255,0.09)',
-                      boxShadow: focused ? '0 0 0 3px rgba(124,106,247,0.08)' : '0 2px 12px rgba(0,0,0,0.35)',
+                      boxShadow: focused ? '0 0 0 3px rgba(124,106,247,0.08)' : 'none',
                     }}
                     transition={{ duration: 0.18 }}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 10,
-                      padding: '11px 14px', borderRadius: 16,
+                      padding: `${isMobile ? '10px' : '11px'} 14px`,
+                      borderRadius: isMobile ? 14 : 16,
                       background: 'var(--bg-2)',
                       border: '1px solid rgba(255,255,255,0.09)',
                     }}
@@ -563,26 +609,27 @@ export default function Home() {
                       onKeyDown={handleKey}
                       onFocus={() => setFocused(true)}
                       onBlur={() => setFocused(false)}
-                      placeholder="e.g. Top 10 agents by recovery this month, or इस महीने DPD क्या है?"
+                      placeholder={isMobile ? 'Ask anything...' : 'e.g. Top 10 agents by recovery this month, or इस महीने DPD क्या है?'}
                       rows={1}
                       style={{
                         flex: 1, background: 'transparent',
                         border: 'none', outline: 'none', resize: 'none',
-                        fontSize: 14, color: 'var(--text-1)',
+                        fontSize: isMobile ? 16 : 14, // 16px prevents iOS zoom
+                        color: 'var(--text-1)',
                         lineHeight: '22px', fontFamily: 'var(--font-body)',
                         caretColor: '#7C6AF7',
-                        maxHeight: '110px', overflowY: 'auto',
+                        maxHeight: '100px', overflowY: 'auto',
                         padding: 0, margin: 0, display: 'block',
                       }}
                     />
 
                     <motion.button
-                      whileHover={input.trim() && !loading ? { scale: 1.08 } : {}}
                       whileTap={input.trim() && !loading ? { scale: 0.88 } : {}}
                       onClick={() => handleSend()}
                       disabled={!input.trim() || loading}
                       style={{
-                        width: 36, height: 36, borderRadius: 11, flexShrink: 0,
+                        width: isMobile ? 38 : 36, height: isMobile ? 38 : 36,
+                        borderRadius: 11, flexShrink: 0,
                         background: input.trim() && !loading
                           ? 'linear-gradient(135deg, #7C6AF7, #5A4FE0)'
                           : 'rgba(255,255,255,0.05)',
@@ -591,7 +638,7 @@ export default function Home() {
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         opacity: input.trim() && !loading ? 1 : 0.22,
                         transition: 'all 0.2s',
-                        boxShadow: input.trim() && !loading ? '0 0 24px rgba(124,106,247,0.5)' : 'none',
+                        boxShadow: input.trim() && !loading ? '0 0 20px rgba(124,106,247,0.5)' : 'none',
                       }}
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -601,16 +648,19 @@ export default function Home() {
                     </motion.button>
                   </motion.div>
 
-                  <div style={{
-                    display: 'flex', justifyContent: 'center', gap: 20,
-                    marginTop: 8, fontSize: 11, color: 'var(--text-3)',
-                    fontFamily: 'var(--font-body)',
-                  }}>
-                    <span>↵ send</span>
-                    <span>⇧↵ new line</span>
-                    <span>⌘B sidebar</span>
-                    <span>🇮🇳 hindi supported</span>
-                  </div>
+                  {/* Hints — hide on mobile */}
+                  {!isMobile && (
+                    <div style={{
+                      display: 'flex', justifyContent: 'center', gap: 18,
+                      marginTop: 7, fontSize: 11, color: 'var(--text-3)',
+                      fontFamily: 'var(--font-body)',
+                    }}>
+                      <span>↵ send</span>
+                      <span>⇧↵ new line</span>
+                      <span>⌘B sidebar</span>
+                      <span>🇮🇳 hindi supported</span>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -619,13 +669,13 @@ export default function Home() {
             {tab === 'analytics' && (
               <motion.div
                 key="analytics"
-                initial={{ opacity: 0, x: 14 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -14 }}
-                transition={{ duration: 0.2 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18 }}
                 style={{ flex: 1, overflow: 'hidden', display: 'flex' }}
               >
-                <AnalyticsPage />
+                <AnalyticsPage isMobile={isMobile} />
               </motion.div>
             )}
 
@@ -633,13 +683,13 @@ export default function Home() {
             {tab === 'reports' && (
               <motion.div
                 key="reports"
-                initial={{ opacity: 0, x: 14 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -14 }}
-                transition={{ duration: 0.2 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18 }}
                 style={{ flex: 1, overflow: 'hidden', display: 'flex' }}
               >
-                <ReportsPage entries={reports} onReplay={handleReplay} />
+                <ReportsPage entries={reports} onReplay={handleReplay} isMobile={isMobile} />
               </motion.div>
             )}
 
@@ -649,28 +699,31 @@ export default function Home() {
 
       {/* ══ FOOTER ══ */}
       <footer style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 28px', height: 34, flexShrink: 0,
+        display: 'flex', alignItems: 'center',
+        justifyContent: isMobile ? 'center' : 'space-between',
+        padding: `0 ${isMobile ? '14px' : '24px'}`,
+        height: isMobile ? 28 : 34, flexShrink: 0,
         background: 'var(--bg-1)', borderTop: '1px solid var(--border)',
       }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          fontSize: 12, fontFamily: 'var(--font-body)',
-        }}>
-          <span style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 13, letterSpacing: '0.1em', color: 'var(--accent-2)',
-          }}>AGENTIC STARLORDS</span>
-          <span style={{ color: 'var(--border-md)' }}>·</span>
-          <span style={{ color: 'var(--text-3)' }}>Collections AI 36</span>
-          <span style={{ color: 'var(--border-md)' }}>·</span>
-          <span style={{ color: 'var(--text-3)' }}>by CreditNirvana</span>
-        </div>
-        <span style={{ fontSize: 12, color: 'var(--text-3)', fontFamily: 'var(--font-body)' }}>
-          © 2026 Team Agentic Starlords · All rights reserved
-        </span>
+        {!isMobile ? (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontFamily: 'var(--font-body)' }}>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 13, letterSpacing: '0.1em', color: 'var(--accent-2)' }}>AGENTIC STARLORDS</span>
+              <span style={{ color: 'var(--border-md)' }}>·</span>
+              <span style={{ color: 'var(--text-3)' }}>Collections AI 36</span>
+              <span style={{ color: 'var(--border-md)' }}>·</span>
+              <span style={{ color: 'var(--text-3)' }}>by CreditNirvana</span>
+            </div>
+            <span style={{ fontSize: 12, color: 'var(--text-3)', fontFamily: 'var(--font-body)' }}>
+              © 2026 Team Agentic Starlords · All rights reserved
+            </span>
+          </>
+        ) : (
+          <span style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--font-body)', letterSpacing: '0.04em' }}>
+            © 2026 Agentic Starlords · Collections AI 36
+          </span>
+        )}
       </footer>
-
     </div>
   )
 }
