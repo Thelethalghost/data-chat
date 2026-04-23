@@ -372,18 +372,18 @@ export default function Home() {
           )}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <motion.div
+            {/* <motion.div
               animate={{ opacity: [0.3, 1, 0.3] }}
               transition={{ duration: 2, repeat: Infinity }}
               style={{ color: 'var(--green)', display: 'flex' }}
             >
               {Icons.oracle()}
-            </motion.div>
-            {!isMobile && (
+            </motion.div> */}
+            {/* {!isMobile && (
               <span style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-body)', fontWeight: 400 }}>
                 Oracle 19c · Live
               </span>
-            )}
+            )} */}
           </div>
         </div>
       </header>
@@ -706,7 +706,7 @@ export default function Home() {
       </div>
 
       {/* ══ FOOTER ══ */}
-      <footer style={{
+      {/* <footer style={{
         display: 'flex', alignItems: 'center',
         justifyContent: isMobile ? 'center' : 'space-between',
         padding: `0 ${isMobile ? '14px' : '20px'}`,
@@ -714,10 +714,71 @@ export default function Home() {
         background: 'var(--bg-1)', borderTop: '1px solid var(--border)',
       }}>
         <span style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-body)', fontWeight: 400 }}>
-          {isMobile ? 'Agentic Starlords · Collections AI 36' : 'Team Agentic Starlords · Collections AI 36 · by CreditNirvana'}
+          {isMobile ? 'Agentic Starlords · Collections AI 36' : 'Agentic Starlords · Collections AI 36 · by CreditNirvana'}
         </span>
         {!isMobile && (
           <span style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-body)', fontWeight: 400 }}>
+            © 2026 Team Agentic Starlords
+          </span>
+        )}
+      </footer> */}
+            <footer style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: isMobile ? 'center' : 'space-between',
+        padding: `0 ${isMobile ? '14px' : '20px'}`,
+        height: isMobile ? 26 : 30,
+        flexShrink: 0,
+        background: 'var(--bg-1)',
+        borderTop: '1px solid var(--border)',
+      }}>
+        <span
+          style={{
+            fontSize: 11,
+            color: 'var(--text-3)',
+            fontFamily: 'var(--font-body)',
+            fontWeight: 400,
+          }}
+        >
+          {isMobile ? (
+            <>
+              <span
+                style={{
+                  fontFamily: 'var(--font-display)',
+                  color: 'var(--accent-2)',
+                  letterSpacing: '0.06em',
+                }}
+              >
+                Agentic Starlords
+              </span>
+              {' · Collections AI 36'}
+            </>
+          ) : (
+            <>
+              <span
+                style={{
+                  fontFamily: 'var(--font-display)',
+                  color: 'var(--accent-2)',
+                  letterSpacing: '0.06em',
+                  fontSize: 16
+                }}
+              >
+                Agentic Starlords
+              </span>
+              {' · by CreditNirvana'}
+            </>
+          )}
+        </span>
+
+        {!isMobile && (
+          <span
+            style={{
+              fontSize: 11,
+              color: 'var(--text-3)',
+              fontFamily: 'var(--font-body)',
+              fontWeight: 400,
+            }}
+          >
             © 2026 Team Agentic Starlords
           </span>
         )}
