@@ -1,23 +1,31 @@
 @import "tailwindcss";
 
 :root {
-  --bg:          #080B12;
-  --bg-1:        #0D1117;
-  --bg-2:        #161B26;
-  --bg-3:        #1C2333;
-  --border:      rgba(255,255,255,0.06);
+  --bg:          #06080F;
+  --bg-1:        #0C0F1A;
+  --bg-2:        #131826;
+  --bg-3:        #1A2030;
+  --bg-4:        #212840;
+  --border:      rgba(255,255,255,0.055);
   --border-md:   rgba(255,255,255,0.10);
-  --accent:      #7C6AF7;
-  --accent-2:    #9F97F9;
-  --accent-glow: rgba(124,106,247,0.15);
-  --green:       #1DB37B;
-  --amber:       #E8A045;
-  --red:         #E05252;
-  --text-1:      #F0F2F5;
-  --text-2:      #8B92A5;
-  --text-3:      #4A5168;
+  --border-hi:   rgba(255,255,255,0.16);
+  --accent:      #6C5CE7;
+  --accent-2:    #A29BFE;
+  --accent-3:    #C8C4FF;
+  --accent-glow: rgba(108,92,231,0.15);
+  --green:       #00B894;
+  --amber:       #FDCB6E;
+  --red:         #E17055;
+  --text-1:      #ECEEF5;
+  --text-2:      #7F8699;
+  --text-3:      #3D4460;
+  /* Restored original fonts */
   --font-display: 'Bebas Neue', 'Arial Black', sans-serif;
   --font-body:    'Instrument Sans', 'Inter', sans-serif;
+  --font-mono:    'DM Mono', 'Fira Code', monospace;
+  --r-sm:        8px;
+  --r-md:        12px;
+  --r-lg:        16px;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -33,12 +41,16 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar { width: 2px; height: 2px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: var(--bg-2); }
+::-webkit-scrollbar-thumb { background: var(--bg-4); border-radius: 99px; }
 
-::selection { background: var(--accent-glow); color: var(--accent-2); }
-
+::selection { background: var(--accent-glow); color: var(--accent-3); }
 textarea::placeholder { color: var(--text-3); }
+input::placeholder { color: var(--text-3); }
 button { font-family: var(--font-body); }
+
+@media (max-width: 768px) {
+  button, [role="button"] { -webkit-tap-highlight-color: transparent; }
+  textarea { font-size: 16px !important; }
+}

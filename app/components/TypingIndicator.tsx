@@ -4,33 +4,31 @@ import { motion } from 'framer-motion'
 export default function TypingIndicator() {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 4 }}
-      className="flex gap-3 items-start"
+      exit={{ opacity: 0 }}
+      style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}
     >
       <div style={{
-        width: 30, height: 30, borderRadius: 10, flexShrink: 0,
-        background: 'var(--bg-2)', border: '1px solid var(--border-md)',
+        width: 26, height: 26, borderRadius: 8, flexShrink: 0,
+        background: 'var(--bg-3)', border: '1px solid var(--border-md)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
+        marginTop: 2,
       }}>
-        <motion.div
-          animate={{ scale: [1, 1.2, 1], opacity: [0.6, 1, 0.6] }}
-          transition={{ duration: 2, repeat: Infinity }}
-          style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)' }}
-        />
+        <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--accent-2)' }} />
       </div>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 5,
-        padding: '10px 16px', borderRadius: '4px 14px 14px 14px',
+        padding: '10px 14px', borderRadius: '4px 14px 14px 14px',
         background: 'var(--bg-2)', border: '1px solid var(--border)',
+        height: 42,
       }}>
-        {[0, 1, 2].map((i) => (
+        {[0, 1, 2].map(i => (
           <motion.div
             key={i}
-            animate={{ y: [0, -5, 0], opacity: [0.4, 1, 0.4] }}
-            transition={{ duration: 0.7, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
-            style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent)' }}
+            animate={{ y: [0, -4, 0], opacity: [0.35, 1, 0.35] }}
+            transition={{ duration: 0.65, repeat: Infinity, delay: i * 0.14 }}
+            style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent-2)' }}
           />
         ))}
       </div>
