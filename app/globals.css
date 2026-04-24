@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
-:root {
+/* ══ DARK THEME (default) ══ */
+:root, [data-theme="dark"] {
   --bg:          #06080F;
   --bg-1:        #0C0F1A;
   --bg-2:        #131826;
@@ -14,18 +15,72 @@
   --accent-3:    #C8C4FF;
   --accent-glow: rgba(108,92,231,0.15);
   --green:       #00B894;
+  --green-bg:    rgba(0,184,148,0.1);
   --amber:       #FDCB6E;
+  --amber-bg:    rgba(253,203,110,0.1);
   --red:         #E17055;
+  --red-bg:      rgba(225,112,85,0.1);
+  --info:        #74B9FF;
+  --info-bg:     rgba(116,185,255,0.1);
   --text-1:      #ECEEF5;
   --text-2:      #7F8699;
   --text-3:      #3D4460;
-  /* Restored original fonts */
+  --user-bubble: var(--accent);
+  --user-text:   #fff;
+  --ai-bubble:   var(--bg-2);
+  --ai-border:   var(--border);
+  --code-bg:     var(--bg-1);
+  --shadow-sm:   0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md:   0 4px 20px rgba(0,0,0,0.4);
+  --shadow-lg:   0 8px 32px rgba(0,0,0,0.5);
+  --chart-grid:  rgba(255,255,255,0.03);
+  --chart-tick:  #3D4460;
+  --chart-label: #7F8699;
+}
+
+/* ══ LIGHT THEME — CreditNirvana inspired ══ */
+[data-theme="light"] {
+  --bg:          #F5F6FA;
+  --bg-1:        #FFFFFF;
+  --bg-2:        #F0F1F6;
+  --bg-3:        #E8EAF0;
+  --bg-4:        #DDE0E9;
+  --border:      rgba(0,0,0,0.06);
+  --border-md:   rgba(0,0,0,0.10);
+  --border-hi:   rgba(0,0,0,0.16);
+  --accent:      #4834D4;
+  --accent-2:    #6C5CE7;
+  --accent-3:    #3B2DB0;
+  --accent-glow: rgba(72,52,212,0.08);
+  --green:       #00A884;
+  --green-bg:    rgba(0,168,132,0.08);
+  --amber:       #E67E22;
+  --amber-bg:    rgba(230,126,34,0.08);
+  --red:         #E74C3C;
+  --red-bg:      rgba(231,76,60,0.08);
+  --info:        #2980B9;
+  --info-bg:     rgba(41,128,185,0.08);
+  --text-1:      #1A1D2E;
+  --text-2:      #5A6178;
+  --text-3:      #9BA3B5;
+  --user-bubble: var(--accent);
+  --user-text:   #fff;
+  --ai-bubble:   #FFFFFF;
+  --ai-border:   var(--border-md);
+  --code-bg:     #F8F9FC;
+  --shadow-sm:   0 1px 3px rgba(0,0,0,0.06);
+  --shadow-md:   0 4px 16px rgba(0,0,0,0.08);
+  --shadow-lg:   0 8px 32px rgba(0,0,0,0.1);
+  --chart-grid:  rgba(0,0,0,0.04);
+  --chart-tick:  #9BA3B5;
+  --chart-label: #5A6178;
+}
+
+/* ══ Fonts ══ */
+:root {
   --font-display: 'Bebas Neue', 'Arial Black', sans-serif;
   --font-body:    'Instrument Sans', 'Inter', sans-serif;
   --font-mono:    'DM Mono', 'Fira Code', monospace;
-  --r-sm:        8px;
-  --r-md:        12px;
-  --r-lg:        16px;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -39,16 +94,23 @@ body {
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background 0.3s, color 0.3s;
 }
 
-::-webkit-scrollbar { width: 2px; height: 2px; }
+::-webkit-scrollbar { width: 3px; height: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--bg-4); border-radius: 99px; }
 
-::selection { background: var(--accent-glow); color: var(--accent-3); }
+::selection { background: var(--accent-glow); color: var(--accent); }
 textarea::placeholder { color: var(--text-3); }
 input::placeholder { color: var(--text-3); }
 button { font-family: var(--font-body); }
+
+/* Smooth theme transition on key elements */
+header, footer, aside, main,
+[data-theme] * {
+  transition: background-color 0.25s, border-color 0.25s, color 0.2s, box-shadow 0.25s;
+}
 
 @media (max-width: 768px) {
   button, [role="button"] { -webkit-tap-highlight-color: transparent; }
