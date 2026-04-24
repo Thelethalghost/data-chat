@@ -6,10 +6,13 @@ class QueryRequest(BaseModel):
     session_id: str | None = None
     query: str
     language: Literal["en", "hi"] | None = None
+    model: str | None = None
 
 
 class ChartSpec(BaseModel):
-    chart_type: Literal["bar", "grouped_bar", "line", "pie", "histogram", "table", "none"]
+    chart_type: Literal[
+        "bar", "grouped_bar", "line", "pie", "histogram", "table", "none"
+    ]
     title: str
     x_key: str | None = None
     y_keys: list[str] = []
@@ -24,3 +27,10 @@ class QueryResponse(BaseModel):
     chart: ChartSpec | None = None
     clarification_needed: bool = False
     language: str = "en"
+    export_available: bool = False
+    export_query: str | None = None
+
+
+class SQLRequest(BaseModel):
+    sql: str
+    session_id: str | None = None

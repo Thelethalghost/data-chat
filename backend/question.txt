@@ -1,0 +1,13 @@
+"How many active accounts are there currently?"
+"What is the total outstanding amount in the portfolio?"
+
+"Show bank-wise recovery performance"
+"Show top 10 agents by total collected amount"
+
+"Show payment trends over last 6 months"
+"Show me HDFC Bank personal loan accounts" → "Now filter by 30-60 DPD" → "What's the average outstanding?" (multi-turn)
+
+"What is our fraud rate?"
+
+"30-60 DPD में कितने accounts हैं?"
+"सबसे ज्यादा outstanding amount किस product का है?"

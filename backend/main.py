@@ -11,12 +11,14 @@ from fastapi.responses import StreamingResponse
 from ulid import ULID
 
 from database import init_pool, close_pool, _pool
-from schemas import QueryRequest, QueryResponse
+from schemas import QueryRequest, QueryResponse, SQLRequest
 from executor import run_query
 from visualisation import pick_chart
 import sql_generator
 import guardrail
 import memory
+from dashboard import router as dashboard_router
+from fastapi.middleware.cors import CORSMiddleware
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 MAX_QUERY_ROWS = int(os.getenv("MAX_QUERY_ROWS", "500"))
@@ -30,6 +32,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AskCN", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.include_router(dashboard_router)
 
 
 @app.get("/health")
@@ -87,7 +98,7 @@ async def handle_query(req: QueryRequest):
         clean_query = req.query
 
     gen = await sql_generator.generate_sql(
-        clean_query if is_export else req.query, history
+        clean_query if is_export else req.query, history, model=req.model
     )
 
     if gen.get("clarification"):
@@ -137,27 +148,15 @@ async def handle_query(req: QueryRequest):
         logging.error("SQL execution failed: %s | SQL: %s", e, gen["sql"])
         raise HTTPException(status_code=500, detail="Query execution failed")
 
-    # Return CSV if export requested
+    # For export queries note it in the response — frontend handles download via /export
     if is_export and rows:
-        import csv, io as _io
-        from datetime import datetime as _dt
-
-        buf = _io.StringIO()
-        writer = csv.DictWriter(buf, fieldnames=columns)
-        writer.writeheader()
-        writer.writerows(rows)
-        filename = f"askcn_{_dt.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        from fastapi.responses import StreamingResponse
-
-        return StreamingResponse(
-            _io.BytesIO(buf.getvalue().encode("utf-8")),
-            media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
-        )
+        export_hint = True
+    else:
+        export_hint = False
 
     chart = pick_chart(rows, columns, req.query)
     answer = await sql_generator.narrate(
-        req.query, rows, language, len(rows) >= MAX_QUERY_ROWS
+        req.query, rows, language, len(rows) >= MAX_QUERY_ROWS, model=req.model
     )
 
     await memory.save_turn(
@@ -228,7 +227,7 @@ async def export_query(req: QueryRequest):
         clean_query = req.query
 
     gen = await sql_generator.generate_sql(
-        clean_query if is_export else req.query, history
+        clean_query if is_export else req.query, history, model=req.model
     )
 
     if gen.get("clarification"):
@@ -260,4 +259,41 @@ async def export_query(req: QueryRequest):
         _io.BytesIO(buf.getvalue().encode("utf-8")),
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@app.post("/execute")
+async def execute_sql(req: SQLRequest):
+    session_id = req.session_id or str(ULID())
+
+    guard = await guardrail.check("", req.sql)
+    if not guard["passed"]:
+        return QueryResponse(
+            session_id=session_id,
+            answer=guard["message"],
+            clarification_needed=True,
+            language="en",
+        )
+
+    try:
+        rows, columns = await run_query(req.sql)
+    except TimeoutError as e:
+        raise HTTPException(status_code=504, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    chart = pick_chart(rows, columns, "")
+    answer = f"Query returned {len(rows)} rows." if rows else "No data found."
+    if len(rows) == 1 and len(rows[0]) == 1:
+        key = list(rows[0].keys())[0]
+        val = rows[0][key]
+        answer = f"{key.replace('_', ' ').title()}: {val}"
+
+    return QueryResponse(
+        session_id=session_id,
+        answer=answer,
+        sql=req.sql,
+        rows_returned=len(rows),
+        chart=chart,
+        language="en",
     )

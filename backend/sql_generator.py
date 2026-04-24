@@ -2,12 +2,13 @@ import os
 import re
 import json
 import logging
-import httpx
 from datetime import datetime
 from executor import run_query
 from schema_linking import get_relevant_tables, format_schema_for_prompt
 from schema_context import format_lookup_cache
 from examples import get_examples
+from langchain_aws import ChatBedrock
+from langchain_core.messages import HumanMessage, SystemMessage
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ SQL_LOG_FILE = os.path.join(LOG_DIR, "sql_queries.log")
 
 BEDROCK_API_KEY = os.getenv("BEDROCK_API_KEY")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-MODEL = os.getenv("ANTHROPIC_MODEL", "global.anthropic.claude-sonnet-4-6")
+MODEL = os.getenv("ANTHROPIC_MODEL", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
 MAX_RETRIES = 3
 
 INSIGHT_KEYWORDS = [
@@ -60,7 +61,36 @@ SELECT COUNT(*) AS account_count
 FROM CN_CORE.ACCOUNT
 WHERE RECORD_STATUS = 1 AND DPD >= 90
 
-EXAMPLE 4 - DPD distribution grouped
+EXAMPLE 4 - DPD distribution grouped by product
+User: Show accounts grouped by DPD and product
+SQL:
+SELECT
+    pt.product_name,
+    CASE
+        WHEN a.dpd = 0 THEN 'Current'
+        WHEN a.dpd <= 30 THEN '1-30 DPD'
+        WHEN a.dpd <= 60 THEN '31-60 DPD'
+        WHEN a.dpd <= 90 THEN '61-90 DPD'
+        ELSE '90+ DPD'
+    END AS dpd_bucket,
+    COUNT(*) AS account_count,
+    SUM(a.total_outstanding_amount) AS total_outstanding
+FROM cn_core.account a
+LEFT JOIN cn_core.product_type pt ON a.product_code = pt.product_code
+WHERE a.record_status = 1
+GROUP BY
+    pt.product_name,
+    CASE
+        WHEN a.dpd = 0 THEN 'Current'
+        WHEN a.dpd <= 30 THEN '1-30 DPD'
+        WHEN a.dpd <= 60 THEN '31-60 DPD'
+        WHEN a.dpd <= 90 THEN '61-90 DPD'
+        ELSE '90+ DPD'
+    END
+ORDER BY pt.product_name, MIN(a.dpd)
+LIMIT 100
+
+EXAMPLE 4b - DPD distribution grouped
 User: Show accounts grouped by DPD and product
 SQL:
 SELECT pt.PRODUCT_NAME,
@@ -79,6 +109,34 @@ WHERE a.RECORD_STATUS = 1
 GROUP BY pt.PRODUCT_NAME,
          CASE WHEN a.DPD = 0 THEN 'Current' WHEN a.DPD BETWEEN 1 AND 30 THEN '1-30 DPD' WHEN a.DPD BETWEEN 31 AND 60 THEN '31-60 DPD' WHEN a.DPD BETWEEN 61 AND 90 THEN '61-90 DPD' WHEN a.DPD > 90 THEN '90+ DPD' END
 ORDER BY pt.PRODUCT_NAME, MIN(a.DPD)
+
+EXAMPLE 4c - Top agents (both field and tele) by recovery rate
+User: Show top 5 agents by recovery rate
+SQL:
+SELECT agent_name, user_name, designation, accounts_handled, total_collected, total_principal, recovery_rate_pct
+FROM (
+    SELECT u.first_name || ' ' || u.last_name AS agent_name, u.user_name, u.designation,
+           COUNT(DISTINCT cc.account_id) AS accounts_handled,
+           SUM(cc.collected_amount) AS total_collected,
+           SUM(cc.principal_outstanding_amount) AS total_principal,
+           ROUND(SUM(cc.collected_amount) / NULLIF(SUM(cc.principal_outstanding_amount), 0) * 100, 2) AS recovery_rate_pct
+    FROM cn_core.collection_case cc
+    LEFT JOIN uamdb.users u ON cc.allocated_collection_user_id = u.user_id
+    WHERE u.user_id IS NOT NULL
+    GROUP BY u.user_id, u.first_name, u.last_name, u.user_name, u.designation
+    UNION ALL
+    SELECT u.first_name || ' ' || u.last_name, u.user_name, u.designation,
+           COUNT(DISTINCT cc.account_id),
+           SUM(cc.collected_amount),
+           SUM(cc.principal_outstanding_amount),
+           ROUND(SUM(cc.collected_amount) / NULLIF(SUM(cc.principal_outstanding_amount), 0) * 100, 2)
+    FROM cn_core.collection_case cc
+    LEFT JOIN uamdb.users u ON cc.allocated_tele_call_user_id = u.user_id
+    WHERE u.user_id IS NOT NULL
+    GROUP BY u.user_id, u.first_name, u.last_name, u.user_name, u.designation
+) combined
+ORDER BY recovery_rate_pct DESC
+LIMIT 5
 
 EXAMPLE 5 - Top agents by recovery rate
 User: Show top 5 agents by recovery rate
@@ -120,6 +178,38 @@ LEFT JOIN CN_CORE.PRODUCT_TYPE pt ON a.PRODUCT_CODE = pt.PRODUCT_CODE
 WHERE (cc.CASE_YEAR * 100 + cc.CASE_MONTH) >= (SELECT MAX(CASE_YEAR * 100 + CASE_MONTH) - 3 FROM CN_CORE.COLLECTION_CASE)
 GROUP BY pt.PRODUCT_NAME, cc.CASE_YEAR, cc.CASE_MONTH
 ORDER BY pt.PRODUCT_NAME, cc.CASE_YEAR, cc.CASE_MONTH
+
+EXAMPLE 7b - Agent improvement month over month
+User: Which agent has improved most month over month?
+SQL:
+WITH monthly AS (
+    SELECT
+        u.first_name || ' ' || u.last_name AS agent_name,
+        u.user_name,
+        cc.case_year,
+        cc.case_month,
+        ROUND(SUM(cc.collected_amount) / NULLIF(SUM(cc.principal_outstanding_amount), 0) * 100, 2) AS recovery_rate
+    FROM cn_core.collection_case cc
+    LEFT JOIN uamdb.users u ON cc.allocated_collection_user_id = u.user_id
+    WHERE (cc.case_year * 100 + cc.case_month) >= (
+        SELECT MAX(case_year * 100 + case_month) - 2
+        FROM cn_core.collection_case
+    )
+    GROUP BY u.first_name, u.last_name, u.user_name, cc.case_year, cc.case_month
+),
+latest AS (SELECT MAX(case_year * 100 + case_month) AS period FROM cn_core.collection_case),
+prev AS (SELECT MAX(case_year * 100 + case_month) - 1 AS period FROM cn_core.collection_case)
+SELECT
+    m1.agent_name,
+    m1.recovery_rate AS current_rate,
+    m2.recovery_rate AS previous_rate,
+    ROUND(m1.recovery_rate - m2.recovery_rate, 2) AS improvement
+FROM monthly m1
+JOIN monthly m2 ON m1.agent_name = m2.agent_name
+    AND (m1.case_year * 100 + m1.case_month) = (SELECT period FROM latest)
+    AND (m2.case_year * 100 + m2.case_month) = (SELECT period FROM prev)
+ORDER BY improvement DESC
+LIMIT 5
 
 EXAMPLE 8 - Total outstanding
 User: Total outstanding in portfolio
@@ -220,8 +310,10 @@ RULES:
 13. For bank-wise queries use lender_name from cn_core.account.
 14. For region queries there is no region column. Use branch_code as proxy.
 15. If data not in schema respond CLARIFICATION: and suggest what you CAN show.
+16. "Expected recovery", "forecast", "predict", "next month projection" — these require forecasting which is not available. Respond with CLARIFICATION: saying you can show historical recovery trends instead.
 16. For ambiguous queries make a reasonable assumption, add -- Interpreted as: comment, and attempt the query.
-17. Respond in same language as user.
+17. When query says "agents" without specifying field or tele, use UNION ALL to combine both allocated_collection_user_id (field) and allocated_tele_call_user_id (tele) joins. Never filter by role_id for agent queries.
+18. Respond in same language as user.
 
 RESPONSE FORMAT:
 - SQL only with optional -- Interpreted as: comment. No markdown, no backticks.
@@ -253,27 +345,71 @@ Respond in same language as the question.
 """
 
 
-async def _call_bedrock(system: str, user_prompt: str, max_tokens: int = 1000) -> str:
-    url = f"https://bedrock-runtime.{AWS_REGION}.amazonaws.com/model/{MODEL}/invoke"
-    body = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": max_tokens,
-        "system": system,
-        "messages": [
-            {"role": "user", "content": [{"type": "text", "text": user_prompt}]}
-        ],
-    }
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(
-            url,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {BEDROCK_API_KEY}",
-            },
-            json=body,
-        )
-    response.raise_for_status()
-    return response.json()["content"][0]["text"]
+async def _call_bedrock(
+    system: str, user_prompt: str, max_tokens: int = 1000, model: str = None
+) -> str:
+    import asyncio, os, httpx
+
+    _model = model or MODEL
+
+    # Auto-detect region from model prefix
+    if _model.startswith("apac."):
+        region = "ap-south-1"
+    elif _model.startswith("eu."):
+        region = "eu-west-1"
+    else:
+        region = "us-east-1"  # us.* and global.* both use us-east-1
+
+    # APAC models — use httpx directly
+    if _model.startswith("apac."):
+        url = f"https://bedrock-runtime.{region}.amazonaws.com/model/{_model}/invoke"
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": user_prompt}]}
+            ],
+        }
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {BEDROCK_API_KEY}",
+                },
+                json=body,
+            )
+        response.raise_for_status()
+        return response.json()["content"][0]["text"]
+
+    # All other models via LangChain
+    os.environ["AWS_BEARER_TOKEN_BEDROCK"] = BEDROCK_API_KEY
+
+    if "anthropic" in _model or "claude" in _model:
+        provider = "anthropic"
+    elif "nova" in _model or "amazon" in _model:
+        provider = "amazon"
+    elif "meta" in _model or "llama" in _model:
+        provider = "meta"
+    elif "mistral" in _model:
+        provider = "mistral"
+    else:
+        provider = None
+
+    _llm = ChatBedrock(
+        model_id=_model,
+        region_name=region,
+        provider=provider,
+    )
+    messages = [
+        SystemMessage(content=system),
+        HumanMessage(content=user_prompt),
+    ]
+    response = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: _llm.invoke(messages)
+    )
+    return response.content
 
 
 def _log_sql(query: str, sql: str, query_type: str = "STANDARD"):
@@ -322,10 +458,10 @@ def _is_insight(query: str) -> bool:
     return any(kw in query.lower() for kw in INSIGHT_KEYWORDS)
 
 
-async def generate_sql(query: str, history: list) -> dict:
+async def generate_sql(query: str, history: list, model: str = None) -> dict:
     language = _detect_language(query)
     if _is_insight(query):
-        return await _generate_insight(query, history, language)
+        return await _generate_insight(query, history, language, model=model)
 
     prompt = _build_prompt(query, history, language)
     last_error = None
@@ -340,7 +476,9 @@ async def generate_sql(query: str, history: list) -> dict:
             )
         )
         try:
-            response_text = await _call_bedrock(SYSTEM_PROMPT, retry_prompt)
+            response_text = await _call_bedrock(
+                SYSTEM_PROMPT, retry_prompt, model=model
+            )
         except Exception as e:
             logger.error("Bedrock error: %s", e)
             raise
@@ -378,7 +516,9 @@ async def generate_sql(query: str, history: list) -> dict:
     }
 
 
-async def _generate_insight(query: str, history: list, language: str) -> dict:
+async def _generate_insight(
+    query: str, history: list, language: str, model: str = None
+) -> dict:
     schema_str = format_schema_for_prompt(get_relevant_tables(query))
     lookup_str = format_lookup_cache()
     sql_prompt = f"{schema_str}\n\n{lookup_str}\n\nGenerate analytical SQL for:\n{query}\n\nReturn aggregated data. Max 50 rows."
@@ -437,7 +577,9 @@ async def _generate_insight(query: str, history: list, language: str) -> dict:
     }
 
 
-async def narrate(query: str, rows: list, language: str, is_capped: bool = False) -> str:
+async def narrate(
+    query: str, rows: list, language: str, is_capped: bool = False, model: str = None
+) -> str:
     if not rows:
         try:
             lang = "Respond in Hindi." if language == "hi" else "Respond in English."
@@ -455,7 +597,11 @@ async def narrate(query: str, rows: list, language: str, is_capped: bool = False
         return f"{key.replace('_', ' ').title()}: {_fmt(rows[0][key])}"
 
     lang = "Respond in Hindi." if language == "hi" else "Respond in English."
-    cap_note = f" Results capped at {len(rows)} rows, there may be more data." if is_capped else ""
+    cap_note = (
+        f" Results capped at {len(rows)} rows, there may be more data."
+        if is_capped
+        else ""
+    )
     prompt = f"User asked: {query}\n{len(rows)} rows returned.{cap_note} Sample: {rows[:10]}\nWrite 1-3 sentence summary with exact numbers. No SQL explanation. {lang}"
     try:
         return await _call_bedrock(

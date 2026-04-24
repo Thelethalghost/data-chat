@@ -190,13 +190,13 @@ export default function AnalyticsPage({ isMobile = false, apiUrl }: Props) {
   const hasFetched = useRef(fromCache)
 
   // ── Sequential loader ─────────────────────────────────────────
+
   const loadAll = async (force = false) => {
-    if (!force && hasFetched.current) return   // data already loaded — don't re-fetch
+    if (!force && hasFetched.current) return
     hasFetched.current = true
     clearCache()
     CACHE.apiUrl = apiUrl
 
-    // Reset UI state
     const idle: SectionState = { status: 'loading', labels: [], values: [] }
     setAgents({ ...idle })
     setDpd({ ...idle })
@@ -205,112 +205,106 @@ export default function AnalyticsPage({ isMobile = false, apiUrl }: Props) {
     setMetrics({ status: 'loading', items: [] })
     setInsights({ status: 'loading', items: [] })
 
-    // 1 ─ Agents
-    let agentData: SectionState = { status: 'error', labels: [], values: [] }
     try {
-      const d    = await callAPI(apiUrl, 'Top 8 agents by recovery rate this month')
-      const rows = getChartData(d)
-      const { labels, values } = getXY(rows)
-      agentData = { status: 'done', labels, values }
-    } catch { /* keep error state */ }
-    setAgents(agentData)
-    CACHE.agents = agentData
+      const { data } = await axios.get(`${apiUrl}/dashboard`, { timeout: 30000 })
 
-    // 2 ─ DPD buckets
-    let dpdData: SectionState = { status: 'error', labels: [], values: [] }
-    try {
-      const d    = await callAPI(apiUrl, 'How many accounts are in each DPD bucket? show account count per bucket')
-      const rows = getChartData(d)
-      const chart = (d.chart as Record<string, unknown>) || {}
-      const xKey  = (chart.x_key as string) || Object.keys(rows[0] || {})[0]
-      const yKey  = ((chart.y_keys as string[]) || [])[0]
-        || Object.keys(rows[0] || {}).find(k => k !== xKey && !isNaN(toNum(rows[0]?.[k])))
-        || ''
-      dpdData = {
+      // Agents
+      const agentRows = data.agents?.rows || []
+      const agentData: SectionState = {
         status: 'done',
-        labels: rows.map(r => String(r[xKey] ?? '')),
-        values: rows.map(r => toNum(r[yKey])),
+        labels: agentRows.map((r: Record<string, unknown>) => String(r.agent_name ?? '')),
+        values: agentRows.map((r: Record<string, unknown>) => toNum(r.recovery_rate_pct)),
       }
-    } catch { /* keep error state */ }
-    setDpd(dpdData)
-    CACHE.dpd = dpdData
+      setAgents(agentData)
+      CACHE.agents = agentData
 
-    // 3 ─ Channel recovery
-    let channelData: SectionState = { status: 'error', labels: [], values: [] }
-    try {
-      const d    = await callAPI(apiUrl, 'Recovery amount by contact channel this month')
-      const rows = getChartData(d)
-      const { labels, values } = getXY(rows)
-      channelData = { status: 'done', labels, values }
-    } catch { /* keep error state */ }
-    setChannel(channelData)
-    CACHE.channel = channelData
-
-    // 4 ─ Roll rate
-    let rollData: SectionState = { status: 'error', labels: [], values: [], series: [] }
-    try {
-      const d    = await callAPI(apiUrl, 'Roll rate trend for last 3 months: 30-60 DPD, 60-90 DPD, and 90+ DPD')
-      const rows = getChartData(d)
-      if (rows.length) {
-        const allKeys  = Object.keys(rows[0])
-        const labelCol = allKeys.find(k => typeof rows[0][k] === 'string') || allKeys[0]
-        const cols     = allKeys.filter(k => k !== labelCol)
-        const COLORS   = ['#6C5CE7', '#FDCB6E', '#E17055']
-        rollData = {
-          status: 'done',
-          labels: rows.map(r => String(r[labelCol] ?? '')),
-          values: [],
-          series: cols.map((col, i) => ({
-            label: col.replace(/_/g, ' '),
-            data:  rows.map(r => toNum(r[col])),
-            color: COLORS[i % COLORS.length],
-          })),
-        }
-      } else {
-        rollData = { status: 'done', labels: [], values: [], series: [] }
+      // DPD buckets
+      const dpdRows = data.dpd_buckets?.rows || []
+      const dpdData: SectionState = {
+        status: 'done',
+        labels: dpdRows.map((r: Record<string, unknown>) => String(r.dpd_bucket ?? '')),
+        values: dpdRows.map((r: Record<string, unknown>) => toNum(r.account_count)),
       }
-    } catch { /* keep error state */ }
-    setRollRate(rollData)
-    CACHE.rollRate = rollData
+      setDpd(dpdData)
+      CACHE.dpd = dpdData
 
-    // 5 ─ Summary metrics
-    let metricsData: MetricState = { status: 'error', items: [] }
-    try {
-      const d    = await callAPI(apiUrl, 'Portfolio summary: total outstanding amount, overall recovery rate, total active accounts, average DPD, PTP fulfillment rate, active agents count')
-      const rows = getChartData(d)
-      const items: MetricState['items'] = []
-      if (rows.length) {
-        Object.keys(rows[0]).forEach(k => {
-          const meta = METRIC_META[k.toLowerCase()]
-          if (meta && items.length < 6) {
-            const v = toNum(rows[0][k])
-            items.push({ label: meta.label, value: meta.fmt(v), color: METRIC_COLORS[items.length], delta: 'live', up: meta.up })
-          }
-        })
+      // Channel — use product recovery
+      const channelRows = data.product_recovery?.rows || []
+      const channelData: SectionState = {
+        status: 'done',
+        labels: channelRows.map((r: Record<string, unknown>) => String(r.product_name ?? '')),
+        values: channelRows.map((r: Record<string, unknown>) => toNum(r.recovery_rate_pct)),
       }
-      metricsData = { status: 'done', items }
-    } catch { /* keep error state */ }
-    setMetrics(metricsData)
-    CACHE.metrics = metricsData
+      setChannel(channelData)
+      CACHE.channel = channelData
 
-    // 6 ─ Build insights from what we loaded
-    const insightItems: InsightState['items'] = []
-    if (agentData.labels.length > 0)
-      insightItems.push({ text: `${agentData.labels[0]} leads recovery at ${agentData.values[0]?.toFixed(1)}%`, type: 'up' })
-    if (dpdData.labels.length > 0) {
-      const maxIdx = dpdData.values.indexOf(Math.max(...dpdData.values))
-      insightItems.push({ text: `Highest DPD concentration: ${dpdData.labels[maxIdx]} with ${dpdData.values[maxIdx].toLocaleString('en-IN')} accounts`, type: 'info' })
+      // Roll rate — use payment trends as line chart
+      const trendRows = data.payment_trends?.rows || []
+      const COLORS = ['#6C5CE7', '#FDCB6E', '#E17055']
+      const rollData: SectionState = {
+        status: 'done',
+        labels: trendRows.map((r: Record<string, unknown>) => String(r.month ?? '')),
+        values: [],
+        series: [
+          {
+            label: 'Total Collected',
+            data: trendRows.map((r: Record<string, unknown>) => toNum(r.total_collected)),
+            color: COLORS[0],
+          },
+          {
+            label: 'Recovery Rate %',
+            data: trendRows.map((r: Record<string, unknown>) => toNum(r.recovery_rate_pct)),
+            color: COLORS[1],
+          },
+        ],
+      }
+      setRollRate(rollData)
+      CACHE.rollRate = rollData
+
+      // Metrics
+      const m = data.metrics?.rows?.[0] || {}
+      const metricsData: MetricState = {
+        status: 'done',
+        items: [
+          { label: 'Total Outstanding', value: fmtCr(toNum(m.total_outstanding_amount)), color: METRIC_COLORS[0], delta: 'live', up: false },
+          { label: 'Avg DPD',           value: `${toNum(m.avg_dpd).toFixed(0)} days`,    color: METRIC_COLORS[1], delta: 'live', up: false },
+          { label: 'Active Accounts',   value: toNum(m.active_accounts).toLocaleString('en-IN'), color: METRIC_COLORS[2], delta: 'live', up: true },
+          { label: 'NPA Accounts',      value: toNum(m.npa_accounts).toLocaleString('en-IN'),    color: METRIC_COLORS[3], delta: 'live', up: false },
+          { label: 'NPA Rate',          value: `${toNum(m.npa_rate_pct).toFixed(1)}%`,           color: METRIC_COLORS[4], delta: 'live', up: false },
+          { label: 'Lenders',           value: String(toNum(m.total_lenders)),                    color: METRIC_COLORS[5], delta: 'live', up: true },
+        ],
+      }
+      setMetrics(metricsData)
+      CACHE.metrics = metricsData
+
+      // Insights
+      const insightItems: InsightState['items'] = []
+      if (agentData.labels.length > 0)
+        insightItems.push({ text: `${agentData.labels[0]} leads recovery at ${agentData.values[0]?.toFixed(1)}%`, type: 'up' })
+      if (dpdData.labels.length > 0) {
+        const maxIdx = dpdData.values.indexOf(Math.max(...dpdData.values))
+        insightItems.push({ text: `Highest DPD concentration: ${dpdData.labels[maxIdx]} with ${dpdData.values[maxIdx].toLocaleString('en-IN')} accounts`, type: 'info' })
+      }
+      if (trendRows.length > 0) {
+        const latest = trendRows[trendRows.length - 1]
+        insightItems.push({ text: `Latest month recovery: ${fmtCr(toNum(latest.total_collected))} at ${toNum(latest.recovery_rate_pct).toFixed(1)}%`, type: 'up' })
+      }
+      if (toNum(m.npa_rate_pct) > 20)
+        insightItems.push({ text: `NPA rate at ${toNum(m.npa_rate_pct).toFixed(1)}% — monitor high DPD accounts`, type: 'warn' })
+
+      const insightsResult: InsightState = { status: 'done', items: insightItems }
+      setInsights(insightsResult)
+      CACHE.insights = insightsResult
+
+    } catch (e) {
+      setAgents({ status: 'error', labels: [], values: [] })
+      setDpd({ status: 'error', labels: [], values: [] })
+      setChannel({ status: 'error', labels: [], values: [] })
+      setRollRate({ status: 'error', labels: [], values: [], series: [] })
+      setMetrics({ status: 'error', items: [] })
+      setInsights({ status: 'error', items: [] })
     }
-    if (channelData.labels.length > 0)
-      insightItems.push({ text: `${channelData.labels[0]} is the top recovery channel this month`, type: 'up' })
-    if (rollData.series && rollData.series.length > 0)
-      insightItems.push({ text: 'Roll rate trends loaded — monitor early-stage bucket movement', type: 'warn' })
-
-    const insightsResult: InsightState = { status: 'done', items: insightItems }
-    setInsights(insightsResult)
-    CACHE.insights = insightsResult
   }
-
   // Only run on first mount if cache is empty
   useEffect(() => {
     if (!hasFetched.current) {

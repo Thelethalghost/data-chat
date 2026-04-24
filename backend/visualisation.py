@@ -2,7 +2,9 @@ from typing import Any
 from schemas import ChartSpec
 
 
-def pick_chart(rows: list[dict[str, Any]], columns: list[str], query: str) -> ChartSpec:
+def pick_chart(rows, columns, query):
+    if not rows or not columns:
+        return ChartSpec(chart_type="none", title="", data=[])
     q = query.lower()
     n_rows = len(rows)
     n_cols = len(columns)

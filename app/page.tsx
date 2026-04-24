@@ -54,7 +54,7 @@ export const MODELS: ModelOption[] = [
     modelId: 'apac.anthropic.claude-3-7-sonnet-20250219-v1:0',
     accuracy: '90%',
     speed: '~12s',
-    badge: 'Server Default',
+    badge: 'Highly Accurate',
     description: 'Highest accuracy for complex portfolio analysis',
     provider: 'anthropic',
   },
@@ -76,8 +76,8 @@ export const MODELS: ModelOption[] = [
     modelId: 'us.amazon.nova-pro-v1:0',
     accuracy: '88%',
     speed: '~10s',
-    badge: 'Fastest',
-    description: 'Fastest responses, great for quick lookups',
+    badge: 'Fast',
+    description: 'Fast responses, great for quick lookups',
     provider: 'amazon',
   },
   {
@@ -87,15 +87,15 @@ export const MODELS: ModelOption[] = [
     modelId: 'us.meta.llama3-3-70b-instruct-v1:0',
     accuracy: '85%',
     speed: '~8s',
-    badge: 'Open Source',
+    badge: 'Fastest',
     description: 'Meta\'s powerful open-source model, great for SQL generation',
     provider: 'meta',
   },
 ]
 
-const DEFAULT_MODEL = MODELS[0]
+const DEFAULT_MODEL = MODELS[3]
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://most-mountain-scoring-geography.trycloudflare.com'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 // ── Icons ─────────────────────────────────────────────────────────
 export const Icons = {
@@ -163,10 +163,10 @@ function ModelSelectorModal({ current, onSelect, onClose }: { current: ModelOpti
             {MODELS.map((m, i) => {
               const isSelected = m.id === current.id
               const badgeColors: Record<string, { bg: string; color: string; border: string }> = {
-                'Server Default': { bg: 'rgba(0,184,148,0.12)',   color: 'var(--green)',    border: 'rgba(0,184,148,0.25)' },
+                'Highly Accurate': { bg: 'rgba(0,184,148,0.12)',   color: 'var(--green)',    border: 'rgba(0,184,148,0.25)' },
                 'Latest':         { bg: 'rgba(108,92,231,0.15)',  color: 'var(--accent-2)', border: 'rgba(108,92,231,0.3)' },
                 'Fastest':        { bg: 'rgba(253,203,110,0.12)', color: 'var(--amber)',    border: 'rgba(253,203,110,0.25)' },
-                'Open Source':    { bg: 'rgba(116,185,255,0.12)', color: '#74B9FF',         border: 'rgba(116,185,255,0.25)' },
+                'Fast':    { bg: 'rgba(116,185,255,0.12)', color: '#74B9FF',         border: 'rgba(116,185,255,0.25)' },
               }
               const bc = m.badge ? badgeColors[m.badge] : null
               return (
