@@ -273,7 +273,7 @@ export default function HistorySidebar({ history, currentId, onSelect, onNew, on
           <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 2, repeat: Infinity }}
             style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }}
           />
-          <span style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--font-body)' }}>Oracle 19c · Live</span>
+          <span style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--font-body)' }}>PostgreSQL · Live</span>
         </div>
         <span style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--font-body)' }}>{history.length} chat{history.length !== 1 ? 's' : ''}</span>
       </div>
