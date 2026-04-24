@@ -45,3 +45,49 @@ backend/venv/
 **/__pycache__/
 **/*.pyc
 **/*.pyo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+
+# Logs
+logs/
+*.log
+
+# Test outputs
+tests/test_results.json
+tests/test_summary.txt
+tests/accuracy_results.json
+
+# Data files
+data/
+
+# Docker volumes
+testdb/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Export files
+*.csv
+*.xlsx
